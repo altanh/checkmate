@@ -100,7 +100,7 @@ def dfgraph_from_keras(mod: tf.keras.models.Model, input_dep=False, output_dep=T
 
 # noinspection PyProtectedMember
 def count_params_keras(mod: tf.keras.models.Model):
-    # mod._check_trainable_weights_consistency()
+    mod._check_trainable_weights_consistency()
     if hasattr(mod, '_collected_trainable_weights'):
         trainable_count = count_params(mod._collected_trainable_weights)
     elif hasattr(mod, '_unique_trainable_weights'):
