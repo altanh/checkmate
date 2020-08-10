@@ -17,6 +17,7 @@ class SolveStrategy(Enum):
     APPROX_DET_RANDOM_THRESH_ROUND_LP = 'APPROX_DET_RANDOM_THRESH_ROUND_LP'
     APPROX_RANDOMIZED_ROUND = 'APPROX_RANDOMIZED_ROUND'
     LB_LP = 'LB_LP'
+    SIMRD = 'SIMRD'
 
     @classmethod
     def get_description(cls, val, model_name=None):
@@ -36,6 +37,7 @@ class SolveStrategy(Enum):
             cls.APPROX_DET_ROUND_LP_05_THRESH: "Approximation via deterministic rounding of LP relaxation w/ 0.5 threshold",
             cls.APPROX_RANDOMIZED_ROUND: "Approximation via randomized rounding of LP relaxation",
             cls.LB_LP: "Lower bound via LP relaxation",
+            cls.SIMRD: "DTR"
         }[val]
 
     # todo move this to experiments codebase
@@ -59,6 +61,7 @@ class SolveStrategy(Enum):
             cls.APPROX_DET_RANDOM_THRESH_ROUND_LP: ("r", "x", fullsize),
             cls.APPROX_RANDOMIZED_ROUND: ("r", "+", fullsize),
             cls.LB_LP: ("r", "p", fullsize),
+            cls.SIMRD: ("royalblue", "*", fullsize)
         }
         if val in mapping:
             return mapping[val]
@@ -81,6 +84,7 @@ class SolveStrategy(Enum):
             cls.APPROX_DET_RANDOM_THRESH_ROUND_LP: "v1.1",
             cls.APPROX_RANDOMIZED_ROUND: "v1.1",
             cls.LB_LP: "v1.1",
+            cls.SIMRD: "v1.0",
         }[val]
 
 

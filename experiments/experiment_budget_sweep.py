@@ -31,7 +31,11 @@ from remat.core.solvers.strategy_checkpoint_last import solve_checkpoint_last_no
 from remat.core.solvers.strategy_chen import solve_chen_sqrtn, solve_chen_greedy
 from remat.core.solvers.strategy_griewank import solve_griewank, clean_griewank_cache
 from remat.core.solvers.strategy_optimal_ilp import solve_ilp_gurobi
+from remat.core.solvers.strategy_simrd import solve_simrd
 from remat.tensorflow2.extraction import dfgraph_from_keras
+
+from simrd.heuristic import DTREqClass
+from simrd.runtime import RuntimeV2EagerOptimized
 
 # ILP solve params
 NUM_ILP_CORES = os.environ.get("ILP_CORES", 12 if os.cpu_count() > 12 else 4)
@@ -210,16 +214,16 @@ if __name__ == "__main__":
     result_dict[SolveStrategy.CHEN_SQRTN] = [solve_chen_sqrtn(g, True)]
 
     # sweep chen's greedy baseline
-    logger.info(f"Running Chen's greedy baseline (APs only)")
+    logger.info(f"Running Chen's greedy baseline (no APs only)")
     chen_sqrtn_noap = result_dict[SolveStrategy.CHEN_SQRTN_NOAP][0]
     greedy_eval_points = chen_sqrtn_noap.schedule_aux_data.activation_ram * (1. + np.arange(-1, 2, 0.01))
     remote_solve_chen_greedy = ray.remote(num_cpus=1)(solve_chen_greedy).remote
     futures = [remote_solve_chen_greedy(g, float(b), False) for b in greedy_eval_points]
-    result_dict[SolveStrategy.CHEN_GREEDY] = get_futures(list(futures), desc="Greedy (APs only)")
+    result_dict[SolveStrategy.CHEN_GREEDY_NOAP] = get_futures(list(futures), desc="Greedy (No AP)")
     if model_name not in CHAIN_GRAPH_MODELS:
-        logger.info(f"Running Chen's greedy baseline (no AP) as model is non-linear")
+        logger.info(f"Running Chen's greedy baseline (AP) as model is non-linear")
         futures = [remote_solve_chen_greedy(g, float(b), True) for b in greedy_eval_points]
-        result_dict[SolveStrategy.CHEN_SQRTN_NOAP] = get_futures(list(futures), desc="Greedy (No AP)")
+        result_dict[SolveStrategy.CHEN_GREEDY] = get_futures(list(futures), desc="Greedy (APs only)")
 
     # sweep griewank baselines
     if model_name in CHAIN_GRAPH_MODELS:
@@ -275,6 +279,18 @@ if __name__ == "__main__":
                                 eps_noise=0 if args.exact_ilp_solve else 0.01, approx=args.exact_ilp_solve)
             futures.append(future)
         result_dict[SolveStrategy.OPTIMAL_ILP_GC].extend(get_futures(futures, desc="Local optimal ILP sweep"))
+
+    # sweep simrd/DTR using ILP points
+    simrd_eval_points = local_ilp_eval_points.copy()
+    if len(args.ilp_eval_points) == 0:
+        simrd_eval_points.extend(global_eval_points)
+    logger.info(f"Evaluating simrd/DTR at evaluation points: {simrd_eval_points}")
+    futures = []
+    remote_simrd = ray.remote(num_cpus=NUM_ILP_CORES)(solve_simrd).remote
+    for b in simrd_eval_points:
+        future = remote_simrd(g, b, heuristic=DTREqClass(), runtime=RuntimeV2EagerOptimized, overhead_limit=3.0)
+        futures.append(future)
+    result_dict[SolveStrategy.SIMRD] = get_futures(futures, desc="simrd (DTREqClass)")
 
     ####
     # Plot result_dict
@@ -372,6 +388,10 @@ if __name__ == "__main__":
 
     # export list of budget, CPU tuples for each strategy
     pickle.dump(export_prefix_min, (log_base / f"export_prefix_min_data.pickle").open('wb'),
+                protocol=pickle.HIGHEST_PROTOCOL)
+
+    # dump the raw results as well, for good measure
+    pickle.dump(result_dict, (log_base / "export_result_dict.pickle").open('wb'),
                 protocol=pickle.HIGHEST_PROTOCOL)
 
     if not args.skip_ilp:
