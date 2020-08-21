@@ -236,6 +236,7 @@ if __name__ == "__main__":
         result_dict[SolveStrategy.GRIEWANK_LOGN] = get_futures(list(futures), desc="Griewank (APs only)")
 
     # sweep optimal ilp baseline
+    local_ilp_eval_points = []
     if not args.skip_ilp:
         ilp_log_base = log_base / "ilp_log"
         ilp_log_base.mkdir(parents=True, exist_ok=True)
@@ -279,6 +280,9 @@ if __name__ == "__main__":
                                 eps_noise=0 if args.exact_ilp_solve else 0.01, approx=args.exact_ilp_solve)
             futures.append(future)
         result_dict[SolveStrategy.OPTIMAL_ILP_GC].extend(get_futures(futures, desc="Local optimal ILP sweep"))
+
+    if not ('global_eval_points' in vars() or 'global_eval_points' in globals()):
+        global_eval_points = get_global_eval_points(g, result_dict)
 
     # sweep simrd/DTR using ILP points
     simrd_eval_points = local_ilp_eval_points.copy()

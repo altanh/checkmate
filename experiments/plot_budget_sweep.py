@@ -8,6 +8,7 @@ import uuid
 from collections import defaultdict
 from typing import Dict, List, Optional
 
+import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -159,6 +160,39 @@ def plot_model(model: str, fig, ax):
     bbox=dict(facecolor='white', alpha=1.0),
     horizontalalignment="right", verticalalignment="top", transform=ax.transAxes)
 
+def valid(r):
+  return r is not None and r.schedule_aux_data is not None and r.solve_time_s < 3600
+
+def plot_solver_time(fig, ax):
+  result_dict_file = 'data/budget_sweep/p32xlarge_MobileNet_512_None/export_result_dict.pickle'
+  result_dict = pickle.load(open(result_dict_file, 'rb'))
+  result_dict = {key.name: vals for key, vals in result_dict.items()}
+
+  checkmate_xs, checkmate_ys = \
+    zip(*sorted([(r.solver_budget / 1e9, r.solve_time_s) for r in result_dict['OPTIMAL_ILP_GC'] if valid(r)]))
+  simrd_xs, simrd_ys = \
+    zip(*sorted([(r.solver_budget / 1e9, r.solve_time_s) for r in result_dict['SIMRD'] if r.solver_budget / 1e9 in checkmate_xs]))
+
+  ax.axhline(y=3600, linestyle='dashed', color='maroon', label='ILP timeout (1 hour)')
+  color, marker, markersize = SolveStrategy.get_plot_params(SolveStrategy.OPTIMAL_ILP_GC)
+  ax.plot(checkmate_xs, checkmate_ys, label='', color=color)
+  ax.scatter(checkmate_xs,checkmate_ys, label='', s=markersize**2, c=color, marker=marker)
+  color, marker, markersize = SolveStrategy.get_plot_params(SolveStrategy.SIMRD)
+  ax.plot(simrd_xs, simrd_ys, label='', color=color)
+  ax.scatter(simrd_xs, simrd_ys, s=markersize**2, label='', c=color, marker=marker)
+  # ax.set_xlabel('Budget (GB)')
+  ax.set_ylabel('Solver Time (s)', fontsize=8)
+  ax.set_yscale('log')
+  ax.yaxis.tick_right()
+  # ax.yaxis.set_label_position('right')
+  ax.yaxis.set_tick_params(labelsize=8)
+  ax.text(0.99, 0.98, 'MobileNet', fontweight='bold', fontsize=10, \
+    bbox=dict(facecolor='white', alpha=1.0, pad=0, edgecolor=None), \
+    horizontalalignment='right', verticalalignment='top', transform=ax.transAxes)
+  # ax.legend(loc='upper right', shadow=False, fancybox=False, framealpha=1.0, fontsize=8)
+  # ax.set_title('Budget vs. Solver Time (MobileNet)')
+  # plt.savefig('data/budget_sweep/solve_time.png', bbox_inches='tight', dpi=300)
+
 if __name__ == "__main__":
   sns.set(); sns.set_style("white")
   fig, axes = plt.subplots(ncols=3, figsize=(5*3, 4))
@@ -174,21 +208,31 @@ if __name__ == "__main__":
     legend_items.append(
       Line2D([0], [0], lw=2, label=label, color=color, marker=marker, markersize=markersize)
     )
+  legend_items.append(
+    Line2D([0], [0], lw=2, label='ILP timeout (1 hour)', color='maroon', linestyle='dashed')
+  )
 
-  fig.add_subplot(111, frameon=False)
+  ax = fig.add_subplot(111, frameon=False)
   plt.tick_params(labelcolor='none', top=False, bottom=False, left=False, right=False)
   plt.xlabel('Budget (GB)', fontsize=15, fontweight="bold", labelpad=8)
   plt.ylabel('Overhead (x)', fontsize=15, fontweight="bold", labelpad=8)
 
-  fig.legend(handles=legend_items, loc = 'upper center', bbox_to_anchor = (0.5, -0.05),
-            bbox_transform = plt.gcf().transFigure, ncol=3,
-            fancybox=False, shadow=False, frameon=False)
+  fig.legend(handles=legend_items, loc = 'upper right', bbox_to_anchor = (1.09, 0.9),
+            bbox_transform = plt.gcf().transFigure, ncol=1,
+            fancybox=False, shadow=False, frameon=True)
 
   # adaptation text
-  ax = plt.gca()
-  plt.text(1.0, -0.2, "* Linearized adaptation", fontsize=10,
-    horizontalalignment="right", verticalalignment="top", transform=ax.transAxes)
-  plt.text(1.0, -0.26, "** AP adaptation", fontsize=10,
-    horizontalalignment="right", verticalalignment="top", transform=ax.transAxes)
+  plt.text(0.79, 0.01, " * Linearized adaptation", fontsize=10,
+    horizontalalignment="right", verticalalignment="top", transform=fig.transFigure)
+  plt.text(0.89, 0.01, "** AP adaptation", fontsize=10,
+    horizontalalignment="right", verticalalignment="top", transform=fig.transFigure)
 
-  fig.savefig(remat_data_dir() / "budget_sweep" / "figure.pdf", bbox_inches="tight", dpi=300)
+  ax = fig.add_subplot(133)
+  box = ax.get_position()
+  box.x0 = box.x0 + 0.25
+  box.x1 = box.x1 + 0.16
+  box.y1 = box.y1 - 0.44
+  ax.set_position(box)
+  plot_solver_time(fig, ax)
+
+  fig.savefig(remat_data_dir() / "budget_sweep" / "figure.png", bbox_inches="tight", dpi=300)
