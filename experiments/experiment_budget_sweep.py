@@ -34,7 +34,7 @@ from remat.core.solvers.strategy_optimal_ilp import solve_ilp_gurobi
 from remat.core.solvers.strategy_simrd import solve_simrd
 from remat.tensorflow2.extraction import dfgraph_from_keras
 
-from simrd.heuristic import DTREqClass
+from simrd.heuristic import DTR, DTREqClass, DTRLocal, LRU, LargestStorage, RandomStorage
 from simrd.runtime import RuntimeV2EagerOptimized
 
 # ILP solve params
@@ -153,6 +153,45 @@ def get_global_eval_points(g: DFGraph, results: Dict[SolveStrategy, List[Schedul
 
     return rounded_eval_points
 
+def run_simrd(g, heuristic, eval_points, liveness_analysis):
+    logger.info(f"Evaluating simrd ({str(heuristic)}) at evaluation points: {eval_points}")
+    futures = []
+    remote_simrd = ray.remote(num_cpus=NUM_ILP_CORES)(solve_simrd).remote
+    for b in eval_points:
+        future = remote_simrd(g, b, heuristic=heuristic, runtime=RuntimeV2EagerOptimized, overhead_limit=3.0, liveness_analysis=liveness_analysis)
+        futures.append(future)
+    results = get_futures(futures, desc=f"simrd ({str(heuristic)})")
+    return results
+
+def plot_simrd(ax, legend_elements, results, heuristic, hide_points=True):
+    label = 'simrd ({})'.format(str(heuristic))
+    _, _, markersize = SolveStrategy.get_plot_params(solve_strategy)
+    color, marker = heuristic.COLOR, heuristic.MARKER
+
+    # Scatter candidate solutions
+    valid_data = [r.schedule_aux_data for r in results if r is not None and r.schedule_aux_data is not None]
+    sorted_data = sorted(valid_data, key=lambda r: r.peak_ram)
+    data_points = [(t.peak_ram / PLOT_UNIT_RAM, t.cpu * 1.0 / baseline_cpu) for t in sorted_data]
+    logger.info(f"{label} has {len(data_points)} samples from {len(results)}")
+    if not len(data_points):
+        return
+
+    x, y = map(list, zip(*data_points))
+    x_step = x + [xmax * 1.0 / PLOT_UNIT_RAM]
+    y_step = prefix_min_np(np.array(y + [min(y)]))
+
+    # Plot best solution over budgets <= x
+    # Add a point to the right of the plot, so ax.step can draw a horizontal line
+    ax.step(x_step, y_step, where='post', zorder=1, color=color)
+    scatter_zorder = 2
+    if hide_points:
+        # Plot only the first and last points
+        ax.scatter([x[0], x[-1]], [y[0], y[-1]], label="", zorder=scatter_zorder, s=markersize ** 2,
+                    color=color, marker=marker)
+    else:
+        ax.scatter(x, np.array(y), label="", zorder=scatter_zorder, s=markersize ** 2, color=color,
+                    marker=marker)
+    legend_elements.append(Line2D([0], [0], lw=2, label=label, markersize=markersize, color=color, marker=marker))
 
 if __name__ == "__main__":
     logger = logging.getLogger("budget_sweep")
@@ -163,10 +202,10 @@ if __name__ == "__main__":
     args = extract_params()
 
     ray.init(temp_dir="/tmp/ray_checkpoint", redis_password=str(uuid.uuid1()), num_cpus=os.cpu_count(),
-             object_store_memory=1024 * 1024 * 1024 if os.cpu_count() < 48 else None)  # include_webui=args.debug
+             object_store_memory=1024 * 1024 * 1024 * 10 if os.cpu_count() < 48 else None)  # include_webui=args.debug
 
     key = "_".join(map(str, [args.platform, args.model_name, args.batch_size, args.input_shape]))
-    log_base = remat_data_dir() / "budget_sweep" / key
+    log_base = remat_data_dir() / "budget_sweep/temp" / key
     shutil.rmtree(log_base, ignore_errors=True)
     pathlib.Path(log_base).mkdir(parents=True, exist_ok=True)
 
@@ -288,13 +327,12 @@ if __name__ == "__main__":
     simrd_eval_points = local_ilp_eval_points.copy()
     if len(args.ilp_eval_points) == 0:
         simrd_eval_points.extend(global_eval_points)
-    logger.info(f"Evaluating simrd/DTR at evaluation points: {simrd_eval_points}")
-    futures = []
-    remote_simrd = ray.remote(num_cpus=NUM_ILP_CORES)(solve_simrd).remote
-    for b in simrd_eval_points:
-        future = remote_simrd(g, b, heuristic=DTREqClass(), runtime=RuntimeV2EagerOptimized, overhead_limit=3.0)
-        futures.append(future)
-    result_dict[SolveStrategy.SIMRD] = get_futures(futures, desc="simrd (DTREqClass)")
+
+    simrd_liveness = True
+    simrd_heuristics = [DTR(), DTREqClass(), DTRLocal()]
+    simrd_results = []
+    for heuristic in simrd_heuristics:
+        simrd_results.append(run_simrd(g, heuristic, simrd_eval_points, simrd_liveness))
 
     ####
     # Plot result_dict
@@ -349,6 +387,10 @@ if __name__ == "__main__":
 
         export_prefix_min[solve_strategy.name] = list(zip(x_step, y_step))
 
+    # Plot simrd
+    for heuristic, results in zip(simrd_heuristics, simrd_results):
+        plot_simrd(ax, legend_elements, results, heuristic, hide_points=args.hide_points)
+
     # Plot ideal (checkpoint all)
     xlim_min, xlim_max = ax.get_xlim()
     checkpoint_all_result = result_dict[SolveStrategy.CHECKPOINT_ALL][0].schedule_aux_data
@@ -364,7 +406,8 @@ if __name__ == "__main__":
     ax.set_xlim([xlim_min, xlim_max])
 
     # Plot platform memory
-    ylim_min, ylim_max = ax.get_ylim()
+    # ylim_min, ylim_max = ax.get_ylim()
+    ylim_min, ylim_max = 0.95, 2.0
     mem_gb = platform_memory(args.platform) / 1e9
     if xlim_min <= mem_gb <= xlim_max:
         ax.vlines(x=mem_gb, ymin=ylim_min, ymax=ylim_max, linestyles="dotted", color="b")

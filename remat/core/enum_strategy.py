@@ -37,7 +37,7 @@ class SolveStrategy(Enum):
             cls.APPROX_DET_ROUND_LP_05_THRESH: "Approximation via deterministic rounding of LP relaxation w/ 0.5 threshold",
             cls.APPROX_RANDOMIZED_ROUND: "Approximation via randomized rounding of LP relaxation",
             cls.LB_LP: "Lower bound via LP relaxation",
-            cls.SIMRD: "DTR"
+            cls.SIMRD: "simrd"
         }[val]
 
     # todo move this to experiments codebase

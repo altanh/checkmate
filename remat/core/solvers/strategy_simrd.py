@@ -7,9 +7,11 @@ from simrd.heuristic import Heuristic
 from simrd.runtime import TelemetrizedRuntimeBase, RematExceededError
 from simrd.parse.checkmate import from_dfgraph
 
+import numpy as np
+
 def solve_simrd(g: DFGraph, budget: int, heuristic: Heuristic, runtime: TelemetrizedRuntimeBase,
-                overhead_limit: float):
-  simrd_g = from_dfgraph(g)
+                overhead_limit: float, liveness_analysis=True):
+  simrd_g = from_dfgraph(g, liveness_analysis=liveness_analysis)
   callback = simrd_g.get_closure()
   base_compute = sum(g.cost_cpu.values())
   remat_limit = base_compute * (overhead_limit - 1)
@@ -19,7 +21,7 @@ def solve_simrd(g: DFGraph, budget: int, heuristic: Heuristic, runtime: Telemetr
     with Timer("solve_simrd") as timer_solve:
       callback(rt)
       assert rt.clock - 1 >= base_compute
-      assert rt.clock - 1 == rt.telemetry.summary['model_compute'] + rt.telemetry.summary['remat_compute']
+      assert np.isclose(rt.clock - 1, rt.telemetry.summary['model_compute'] + rt.telemetry.summary['remat_compute'])
       feasible = True
   except (MemoryError, RematExceededError):
     feasible = False
