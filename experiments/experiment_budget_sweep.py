@@ -210,16 +210,16 @@ if __name__ == "__main__":
     result_dict[SolveStrategy.CHEN_SQRTN] = [solve_chen_sqrtn(g, True)]
 
     # sweep chen's greedy baseline
-    logger.info(f"Running Chen's greedy baseline (APs only)")
+    logger.info(f"Running Chen's greedy baseline (No AP)")
     chen_sqrtn_noap = result_dict[SolveStrategy.CHEN_SQRTN_NOAP][0]
     greedy_eval_points = chen_sqrtn_noap.schedule_aux_data.activation_ram * (1. + np.arange(-1, 2, 0.01))
     remote_solve_chen_greedy = ray.remote(num_cpus=1)(solve_chen_greedy).remote
     futures = [remote_solve_chen_greedy(g, float(b), False) for b in greedy_eval_points]
-    result_dict[SolveStrategy.CHEN_GREEDY] = get_futures(list(futures), desc="Greedy (APs only)")
+    result_dict[SolveStrategy.CHEN_GREEDY_NOAP] = get_futures(list(futures), desc="Greedy (No AP)")
     if model_name not in CHAIN_GRAPH_MODELS:
-        logger.info(f"Running Chen's greedy baseline (no AP) as model is non-linear")
+        logger.info(f"Running Chen's greedy baseline (AP) as model is non-linear")
         futures = [remote_solve_chen_greedy(g, float(b), True) for b in greedy_eval_points]
-        result_dict[SolveStrategy.CHEN_SQRTN_NOAP] = get_futures(list(futures), desc="Greedy (No AP)")
+        result_dict[SolveStrategy.CHEN_GREEDY] = get_futures(list(futures), desc="Greedy (APs only)")
 
     # sweep griewank baselines
     if model_name in CHAIN_GRAPH_MODELS:
@@ -230,6 +230,8 @@ if __name__ == "__main__":
         remote_solve_griewank = ray.remote(num_cpus=1)(solve_griewank).remote
         futures = [remote_solve_griewank(g, float(b)) for b in griewank_eval_points]
         result_dict[SolveStrategy.GRIEWANK_LOGN] = get_futures(list(futures), desc="Griewank (APs only)")
+
+    simrd_eval_points = []
 
     # sweep optimal ilp baseline
     if not args.skip_ilp:
@@ -253,6 +255,7 @@ if __name__ == "__main__":
                                     eps_noise=0 if args.exact_ilp_solve else 0.01, approx=args.exact_ilp_solve)
                 futures.append(future)
             result_dict[SolveStrategy.OPTIMAL_ILP_GC] = get_futures(futures, desc="Global optimal ILP sweep")
+            simrd_eval_points = global_eval_points.copy()
 
             # sample n local points around minimum feasible ram (all methods)
             min_r = min([r.schedule_aux_data.activation_ram or np.inf for l in result_dict.values() for r in l if
@@ -263,6 +266,8 @@ if __name__ == "__main__":
             max_ram = ILP_SEARCH_RANGE[1] * min_r
             k_pts = dist_points(min_ram, max_ram, nlocal_samples)
             local_ilp_eval_points = [roundup(ILP_ROUND_FACTOR, p) for p in k_pts]
+
+        simrd_eval_points.extend(local_ilp_eval_points)
 
         # run local search routine
         futures = []
@@ -275,6 +280,15 @@ if __name__ == "__main__":
                                 eps_noise=0 if args.exact_ilp_solve else 0.01, approx=args.exact_ilp_solve)
             futures.append(future)
         result_dict[SolveStrategy.OPTIMAL_ILP_GC].extend(get_futures(futures, desc="Local optimal ILP sweep"))
+
+    if len(simrd_eval_points) == 0:
+        simrd_eval_points = get_global_eval_points(g, result_dict)
+
+    # dump raw data, so we can run simrd later
+    pickle.dump(simrd_eval_points, (log_base / 'simrd_eval_points.pickle').open('wb'), \
+        protocol=pickle.HIGHEST_PROTOCOL)
+    pickle.dump(result_dict, (log_base / 'result_dict.pickle').open('wb'), \
+        protocol=pickle.HIGHEST_PROTOCOL)
 
     ####
     # Plot result_dict
