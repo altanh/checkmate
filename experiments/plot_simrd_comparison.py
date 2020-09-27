@@ -44,6 +44,7 @@ MODEL_PLATFORM = {
     'VGG16': 'p32xlarge',
     'vgg_unet': 'p32xlarge',
     'MobileNet': 'p32xlarge',
+    'ResNet50': 'p32xlarge',
     # ...
 }
 
@@ -51,6 +52,7 @@ MODEL_BATCH = {
     'VGG16': '256',
     'vgg_unet': '32',
     'MobileNet': '512',
+    'ResNet50': '256',
     # ...
 }
 
@@ -58,6 +60,7 @@ MODEL_KEY = {
     'VGG16': 'p32xlarge_VGG16_256_None',
     'vgg_unet': 'p32xlarge_vgg_unet_32_None',
     'MobileNet': 'p32xlarge_MobileNet_512_None',
+    'ResNet50': 'p32xlarge_ResNet50_256_None',
     # ...
 }
 
@@ -65,6 +68,7 @@ MODEL_INPUT_SHAPE = {
     'VGG16': '224x224',
     'vgg_unet': '416x608',
     'MobileNet': '224x224',
+    'ResNet50': '224x224',
     # ...
 }
 
@@ -152,8 +156,8 @@ if __name__ == "__main__":
     sns.set_style('white')
 
     fig, ax = plt.subplots(1, 1, figsize=(4, 4))
-    plot_model('MobileNet', fig, ax)
-    ax.set_xlim([4,48])
+    plot_model('ResNet50', fig, ax)
+    ax.set_xlim([4,42])
     ax.set_ylim([0.95, 1.5])
 
-    fig.savefig(log_base / 'the_figure3.png', bbox_inches='tight', dpi=300)
+    fig.savefig(log_base / 'ResNet50.png', bbox_inches='tight', dpi=300)

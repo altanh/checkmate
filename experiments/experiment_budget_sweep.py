@@ -159,7 +159,7 @@ if __name__ == "__main__":
     args = extract_params()
 
     ray.init(temp_dir="/tmp/ray_checkpoint", redis_password=str(uuid.uuid1()), num_cpus=os.cpu_count(),
-             object_store_memory=1024 * 1024 * 1024 if os.cpu_count() < 48 else None)  # include_webui=args.debug
+             object_store_memory=1024 * 1024 * 1024 * 3 if os.cpu_count() < 48 else None)  # include_webui=args.debug
 
     key = "_".join(map(str, [args.platform, args.model_name, args.batch_size, args.input_shape]))
     log_base = remat_data_dir() / "budget_sweep" / key
