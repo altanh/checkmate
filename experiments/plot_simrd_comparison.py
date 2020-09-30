@@ -72,18 +72,36 @@ MODEL_INPUT_SHAPE = {
     # ...
 }
 
+MODEL_XYLIM = {
+    'VGG16': [[13, 22], [0.95, 1.5]],
+    'MobileNet': [[4, 48], [0.95, 1.5]],
+    'vgg_unet': [[6, 40], [0.95, 1.5]],
+    'ResNet50': [[8, 42], [0.95, 1.5]]
+}
+
 PLOT_UNIT_RAM = 1e9
+PLOT_STRATEGIES = [
+    SolveStrategy.CHEN_GREEDY, SolveStrategy.CHEN_GREEDY_NOAP,
+    SolveStrategy.CHEN_SQRTN, SolveStrategy.CHEN_SQRTN_NOAP,
+    SolveStrategy.GRIEWANK_LOGN,
+    SolveStrategy.OPTIMAL_ILP_GC,
+]
+PLOT_HEURISTICS = ['DTR', 'LRU']
 
-# def extract_params():
-#     parser = argparse.ArgumentParser()
-#     parser.add_argument('--platform', default="flops", choices=PLATFORM_CHOICES)
-#     parser.add_argument('--model-name', default="VGG16", choices=list(sorted(MODEL_NAMES)))
-#     parser.add_argument("-b", "--batch-size", type=int, default=1)
-#     parser.add_argument("-s", "--input-shape", type=int, nargs="+", default=[])
+PLOT_STRATEGY_LABELS = {
+    SolveStrategy.CHEN_GREEDY: r'Chen et al. greedy',
+    SolveStrategy.CHEN_SQRTN: r'Chen et al. $\sqrt{n}$',
+    SolveStrategy.GRIEWANK_LOGN: r'Griewank & Walther $\log(n)$',
+    SolveStrategy.CHECKPOINT_ALL: r'Checkpoint all (ideal)',
+    SolveStrategy.OPTIMAL_ILP_GC: r'Checkmate (optimal ILP)',
+}
 
-#     _args = parser.parse_args()
-#     _args.input_shape = _args.input_shape if _args.input_shape else None
-#     return _args
+PLOT_STRATEGY_ADAPT = {
+    SolveStrategy.CHEN_GREEDY: '**',
+    SolveStrategy.CHEN_GREEDY_NOAP: ' *',
+    SolveStrategy.CHEN_SQRTN: '**',
+    SolveStrategy.CHEN_SQRTN_NOAP: ' *',
+}
 
 
 def prefix_min_np(values: np.ndarray):
@@ -108,6 +126,9 @@ def plot_strategy(ax, results, color, marker, markersize, baseline_cpu, zorder):
     ax.scatter([x[0], x[-1]], [y[0], y[-1]], label="", zorder=zorder, s=markersize ** 2,
                 color=color, marker=marker, alpha=0.75)
 
+    # return first point
+    return x[0], y[0]
+
 def plot_model(model_name, fig, ax):
     log_base = remat_data_dir() / 'budget_sweep' / MODEL_KEY[model_name]
     result_dict = pickle.load((log_base / 'result_dict.pickle').open('rb'))
@@ -117,13 +138,19 @@ def plot_model(model_name, fig, ax):
     baseline_memory = result_dict[SolveStrategy.CHECKPOINT_ALL][0].schedule_aux_data.peak_ram
 
     for solve_strategy, results in result_dict.items():
-        if solve_strategy in [SolveStrategy.CHECKPOINT_LAST_NODE, SolveStrategy.CHECKPOINT_ALL]: continue
+        if solve_strategy not in PLOT_STRATEGIES: continue
         color, marker, markersize = SolveStrategy.get_plot_params(solve_strategy)
         scatter_zorder = 3 if solve_strategy == SolveStrategy.CHECKPOINT_ALL_AP else 2
-        plot_strategy(ax, results, color, marker, markersize, baseline_cpu, scatter_zorder)
+        pt = plot_strategy(ax, results, color, marker, markersize, baseline_cpu, scatter_zorder)
+
+        if model_name not in CHAIN_GRAPH_MODELS and solve_strategy in PLOT_STRATEGY_ADAPT:
+            icon = PLOT_STRATEGY_ADAPT[solve_strategy]
+            ax.annotate(icon, xy=pt, xytext=(-14, -6), textcoords="offset points", color=color)
 
     # Plot simrd results
     for heuristic, results in zip(simrd_heuristics, simrd_results):
+        if type(heuristic).__name__ not in PLOT_HEURISTICS:
+            continue
         color, marker, markersize = heuristic.COLOR, heuristic.MARKER, matplotlib.rcParams['lines.markersize']
         plot_strategy(ax, results, color, marker, markersize, baseline_cpu, 2)
 
@@ -147,6 +174,36 @@ def plot_model(model_name, fig, ax):
         ax.set_ylim([ylim_min, ylim_max])
         ax.axvspan(xlim_min, mem_gb, alpha=0.2, color='royalblue')
 
+    xlim, ylim = MODEL_XYLIM[model_name]
+    ax.set_xlim(xlim)
+    ax.set_ylim(ylim)
+
+def make_legend_and_finalize(fig):
+    legend_items = []
+    for strategy, label in PLOT_STRATEGY_LABELS.items():
+        c, m, ms = SolveStrategy.get_plot_params(strategy)
+        legend_items.append(Line2D([0], [0], lw=2, label=label, color=c, marker=m, markersize=ms))
+    for heuristic in PLOT_HEURISTICS:
+        heuristic = eval('{}()'.format(heuristic))
+        c, m, ms = heuristic.COLOR, heuristic.MARKER, matplotlib.rcParams['lines.markersize']
+        label = str(heuristic)
+        legend_items.append(Line2D([0], [0], lw=2, label=label, color=c, marker=m, markersize=ms))
+
+    ax = fig.add_subplot(111, frameon=False)
+    plt.tick_params(labelcolor='none', top=False, bottom=False, left=False, right=False)
+    plt.xlabel('Budget (GB)', fontsize=15, fontweight='bold', labelpad=8)
+    plt.ylabel(r'Overhead ($\times$)', fontsize=15, fontweight='bold', labelpad=8)
+
+    fig.legend(
+        handles=legend_items, loc='upper right', bbox_to_anchor=(1.09, 0.9),
+        bbox_transform=plt.gcf().transFigure, ncol=1, fancybox=False, shadow=False, frameon=True
+    )
+
+    plt.text(
+        1.084, 0.43, '* Linearized adaptation\n** AP adaptation', fontsize=10,
+        horizontalalignment='right', verticalalignment='top', transform=fig.transFigure
+    )
+
 if __name__ == "__main__":
     logger = logging.getLogger("budget_sweep")
     logger.setLevel(logging.DEBUG)
@@ -155,9 +212,12 @@ if __name__ == "__main__":
     sns.set()
     sns.set_style('white')
 
-    fig, ax = plt.subplots(1, 1, figsize=(4, 4))
-    plot_model('ResNet50', fig, ax)
-    ax.set_xlim([4,42])
-    ax.set_ylim([0.95, 1.5])
+    fig, ax = plt.subplots(1, 3, figsize=(15, 4))
 
-    fig.savefig(log_base / 'ResNet50.png', bbox_inches='tight', dpi=300)
+    plot_model('VGG16', fig, ax[0])
+    plot_model('MobileNet', fig, ax[1])
+    plot_model('vgg_unet', fig, ax[2])
+    make_legend_and_finalize(fig)
+
+    fig.savefig(log_base / 'dtr_checkmate.pdf', bbox_inches='tight', dpi=300)
+    fig.savefig(log_base / 'dtr_checkmate.png', bbox_inches='tight', dpi=300)
