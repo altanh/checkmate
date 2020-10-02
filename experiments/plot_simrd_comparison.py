@@ -79,6 +79,13 @@ MODEL_XYLIM = {
     'ResNet50': [[8, 42], [0.95, 1.5]]
 }
 
+MODEL_TEXT = {
+    'VGG16': ['VGG16 ({})'.format(MODEL_BATCH['VGG16']), MODEL_INPUT_SHAPE['VGG16']],
+    'vgg_unet': ['U-Net ({})'.format(MODEL_BATCH['vgg_unet']), MODEL_INPUT_SHAPE['vgg_unet']],
+    'MobileNet': ['MobileNet ({})'.format(MODEL_BATCH['MobileNet']), MODEL_INPUT_SHAPE['MobileNet']],
+    'ResNet50': ['ResNet50 ({})'.format(MODEL_BATCH['ResNet50']), MODEL_INPUT_SHAPE['ResNet50']]
+}
+
 PLOT_UNIT_RAM = 1e9
 PLOT_STRATEGIES = [
     SolveStrategy.CHEN_GREEDY, SolveStrategy.CHEN_GREEDY_NOAP,
@@ -86,7 +93,7 @@ PLOT_STRATEGIES = [
     SolveStrategy.GRIEWANK_LOGN,
     SolveStrategy.OPTIMAL_ILP_GC,
 ]
-PLOT_HEURISTICS = ['DTR', 'LRU']
+PLOT_HEURISTICS = ['DTR', 'DTREqClass', 'LRU']
 
 PLOT_STRATEGY_LABELS = {
     SolveStrategy.CHEN_GREEDY: r'Chen et al. greedy',
@@ -178,6 +185,11 @@ def plot_model(model_name, fig, ax):
     ax.set_xlim(xlim)
     ax.set_ylim(ylim)
 
+    # Model name and settings
+    title, subtitle = MODEL_TEXT[model_name]
+    ax.text(0.98, 0.975, title, fontsize=14, weight='bold', ha='right', va='top', transform=ax.transAxes)
+    ax.text(0.98, 0.898, subtitle, fontsize=12, ha='right', va='top', transform=ax.transAxes)
+
 def make_legend_and_finalize(fig):
     legend_items = []
     for strategy, label in PLOT_STRATEGY_LABELS.items():
@@ -200,7 +212,7 @@ def make_legend_and_finalize(fig):
     )
 
     plt.text(
-        1.084, 0.43, '* Linearized adaptation\n** AP adaptation', fontsize=10,
+        1.084, 0.38, '* Linearized adaptation\n** AP adaptation', fontsize=10,
         horizontalalignment='right', verticalalignment='top', transform=fig.transFigure
     )
 
